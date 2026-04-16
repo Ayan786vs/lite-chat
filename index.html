@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LiteChat</title>
+<!-- Socket.IO client (served by our server automatically) -->
+<script src="/socket.io/socket.io.js"></script>
+<style>
+/* ── Reset & Variables ─────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #0d0f11;
+  --surface: #161a1e;
+  --border:  #252b31;
+  --accent:  #3af0a2;       /* terminal green */
+  --accent2: #1a7a52;
+  --muted:   #4a5568;
+  --text:    #d1d9e0;
+  --text2:   #7a8a99;
+  --me:      #0f2a1e;       /* my bubble bg */
+  --them:    #1a1f25;       /* their bubble bg */
+  --danger:  #ff5f57;
+  --font:    'Courier New', 'Lucida Console', monospace;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+
+/* ── Login Screen ──────────────────────────── */
+#login-screen {
+  width: 100%;
+  max-width: 340px;
+  padding: 2rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+#login-screen h1 {
+  color: var(--accent);
+  font-size: 1.4rem;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.3rem;
+}
+
+#login-screen p { color: var(--text2); margin-bottom: 1.5rem; font-size: 11px; }
+
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 1rem; }
+.field label { color: var(--text2); font-size: 11px; letter-spacing: .08em; }
+
+input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  padding: 8px 10px;
+  outline: none;
+  width: 100%;
+  transition: border-color .15s;
+}
+input:focus { border-color: var(--accent); }
+
+button {
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 12px;
+  padding: 8px 16px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  letter-spacing: .06em;
+  transition: background .15s, color .15s;
+}
+button:hover { background: var(--accent); color: var(--bg); }
+button:disabled { opacity: .4; cursor: not-allowed; }
+button:disabled:hover { background: transparent; color: var(--accent); }
+
+/* ── App Shell ─────────────────────────────── */
+#app {
+  display: none;          /* shown after login */
+  width: 100%;
+  max-width: 800px;
+  height: 100dvh;
+  max-height: 600px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  flex-direction: row;
+}
+
+/* ── Sidebar (user list) ───────────────────── */
+#sidebar {
+  width: 180px;
+  min-width: 180px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+#sidebar-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#my-name {
+  color: var(--accent);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+#status-dot.online { background: var(--accent); }
+
+#users-label {
+  padding: 8px 12px 4px;
+  font-size: 10px;
+  color: var(--text2);
+  letter-spacing: .08em;
+}
+
+#user-list { flex: 1; overflow-y: auto; }
+
+.user-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-left: 2px solid transparent;
+  transition: background .1s;
+}
+.user-item:hover { background: rgba(58,240,162,.05); }
+.user-item.active {
+  background: rgba(58,240,162,.08);
+  border-left-color: var(--accent);
+  color: var(--accent);
+}
+.user-item .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+.user-item.is-online .dot { background: var(--accent); }
+.user-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Custom chat target input in sidebar */
+#new-chat-wrap {
+  padding: 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 4px;
+}
+#new-chat-input {
+  flex: 1;
+  font-size: 11px;
+  padding: 5px 7px;
+}
+#new-chat-btn {
+  padding: 5px 8px;
+  font-size: 11px;
+}
+
+/* ── Chat Panel ────────────────────────────── */
+#chat-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+#chat-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#chat-with {
+  color: var(--accent);
+  font-size: 12px;
+  flex: 1;
+}
+#chat-with.empty { color: var(--text2); }
+
+/* Offline banner */
+#offline-bar {
+  display: none;
+  background: #2a1a0a;
+  border-bottom: 1px solid #5a3010;
+  padding: 4px 14px;
+  font-size: 11px;
+  color: #f0a03a;
+  gap: 6px;
+  align-items: center;
+}
+#offline-bar.show { display: flex; }
+
+/* Messages area */
+#messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  scroll-behavior: smooth;
+}
+
+/* Empty state */
+#empty-state {
+  margin: auto;
+  color: var(--text2);
+  font-size: 11px;
+  text-align: center;
+  line-height: 1.8;
+}
+
+.msg-row { display: flex; flex-direction: column; max-width: 72%; }
+.msg-row.mine { align-self: flex-end; align-items: flex-end; }
+.msg-row.theirs { align-self: flex-start; align-items: flex-start; }
+
+.bubble {
+  padding: 6px 10px;
+  line-height: 1.5;
+  word-break: break-word;
+  white-space: pre-wrap;
+  font-size: 12.5px;
+}
+.mine .bubble  { background: var(--me);   border: 1px solid var(--accent2); color: var(--text); }
+.theirs .bubble { background: var(--them); border: 1px solid var(--border);  color: var(--text); }
+
+.msg-meta {
+  font-size: 10px;
+  color: var(--text2);
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Status badge */
+.status {
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: 2px;
+}
+.status.sent    { color: var(--accent); }
+.status.pending { color: #f0a03a; }
+.status.error   { color: var(--danger); }
+
+/* Compose bar */
+#compose {
+  display: flex;
+  border-top: 1px solid var(--border);
+  padding: 8px;
+  gap: 6px;
+}
+#msg-input {
+  flex: 1;
+  resize: none;
+  height: 36px;
+  max-height: 100px;
+  line-height: 1.5;
+  overflow-y: auto;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+#send-btn { padding: 7px 14px; font-size: 12px; }
+
+/* Scrollbar style */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── Util ──────────────────────────────────── */
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- ── LOGIN ─────────────────────────────── -->
+<div id="login-screen">
+  <h1>&gt; LiteChat_</h1>
+  <p>Real-time · Minimal · Fast</p>
+  <div class="field">
+    <label>USERNAME</label>
+    <input id="login-input" type="text" placeholder="enter username" maxlength="24" autocomplete="off">
+  </div>
+  <button id="login-btn">CONNECT →</button>
+</div>
+
+<!-- ── APP ───────────────────────────────── -->
+<div id="app">
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <div id="status-dot"></div>
+      <span id="my-name"></span>
+    </div>
+    <div id="users-label">ONLINE</div>
+    <div id="user-list">
+      <!-- user items injected here -->
+    </div>
+    <div id="new-chat-wrap">
+      <input id="new-chat-input" type="text" placeholder="username…" maxlength="24">
+      <button id="new-chat-btn" title="Open chat">+</button>
+    </div>
+  </div>
+
+  <!-- Chat Panel -->
+  <div id="chat-panel">
+    <div id="chat-header">
+      <span id="chat-with" class="empty">— select a user —</span>
+    </div>
+
+    <!-- Offline warning bar -->
+    <div id="offline-bar">
+      ⚠ offline — messages queued locally
+    </div>
+
+    <div id="messages">
+      <div id="empty-state">
+        no messages yet<br>
+        <span style="color:var(--muted)">↑ pick someone to chat with</span>
+      </div>
+    </div>
+
+    <div id="compose">
+      <textarea id="msg-input" placeholder="type a message…" disabled></textarea>
+      <button id="send-btn" disabled>SEND</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+//  LiteChat — Frontend Logic
+//  Sections:
+//   1. State
+//   2. Socket setup
+//   3. Login
+//   4. User list
+//   5. Chat / messages
+//   6. Offline queue (IndexedDB)
+//   7. Network detection
+//   8. Helpers
+// ══════════════════════════════════════════════
+
+// ── 1. State ─────────────────────────────────
+let myName    = "";          // logged-in username
+let chatWith  = "";          // current chat partner
+let isOnline  = navigator.onLine;
+let socket    = null;
+
+// In-memory messages per conversation  { "a|b": [{...}] }
+const convCache = {};
+
+// ── 2. Socket Setup ───────────────────────────
+function initSocket() {
+  socket = io({ autoConnect: true });
+
+  socket.on("connect", () => {
+    // Re-authenticate after reconnect
+    socket.emit("login", myName);
+    dot("online");
+    hideOfflineBar();
+    flushQueue();          // send any queued offline messages
+  });
+
+  socket.on("disconnect", () => {
+    dot("offline");
+    showOfflineBar();
+  });
+
+  // Server confirmed a message was saved
+  socket.on("msg_ack", ({ _id, status }) => {
+    updateStatus(_id, status || "sent");
+  });
+
+  // Incoming message from someone else
+  socket.on("recv_msg", (msg) => {
+    cacheMsg(msg);
+    if (msg.from === chatWith) renderMsg(msg, false);
+    // TODO: badge unread count if not current chat
+  });
+
+  // Live online users list
+  socket.on("online_users", (users) => {
+    renderUserList(users.filter(u => u !== myName));
+  });
+}
+
+// ── 3. Login ─────────────────────────────────
+document.getElementById("login-btn").onclick = doLogin;
+document.getElementById("login-input").addEventListener("keydown", e => {
+  if (e.key === "Enter") doLogin();
+});
+
+function doLogin() {
+  const val = document.getElementById("login-input").value.trim().toLowerCase();
+  if (!val) return;
+  myName = val;
+
+  // Show app
+  document.getElementById("login-screen").style.display = "none";
+  document.getElementById("app").style.display         = "flex";
+  document.getElementById("my-name").textContent       = myName;
+
+  initSocket();
+  socket.emit("login", myName);
+}
+
+// ── 4. User List ──────────────────────────────
+let onlineSet = new Set();
+
+function renderUserList(users) {
+  onlineSet = new Set(users);
+  const list = document.getElementById("user-list");
+
+  // Preserve any locally known users too
+  const known = new Set([...users, ...Object.keys(convCache).flatMap(k => k.split("|"))]);
+  known.delete(myName);
+
+  list.innerHTML = "";
+  [...known].sort().forEach(u => {
+    const el = document.createElement("div");
+    el.className = "user-item" + (onlineSet.has(u) ? " is-online" : "") + (u === chatWith ? " active" : "");
+    el.innerHTML = `<div class="dot"></div><span>${u}</span>`;
+    el.onclick = () => openChat(u);
+    list.appendChild(el);
+  });
+}
+
+// ── "Open chat" via input ─────────────────────
+document.getElementById("new-chat-btn").onclick = () => {
+  const val = document.getElementById("new-chat-input").value.trim().toLowerCase();
+  if (val && val !== myName) {
+    document.getElementById("new-chat-input").value = "";
+    openChat(val);
+  }
+};
+document.getElementById("new-chat-input").addEventListener("keydown", e => {
+  if (e.key === "Enter") document.getElementById("new-chat-btn").click();
+});
+
+// ── 5. Chat / Messages ────────────────────────
+function openChat(user) {
+  chatWith = user;
+
+  // Update header & sidebar highlight
+  document.getElementById("chat-with").textContent = "> " + user;
+  document.getElementById("chat-with").classList.remove("empty");
+  document.querySelectorAll(".user-item").forEach(el => {
+    el.classList.toggle("active", el.querySelector("span").textContent === user);
+  });
+
+  // Enable compose
+  document.getElementById("msg-input").disabled  = false;
+  document.getElementById("send-btn").disabled   = false;
+  document.getElementById("msg-input").focus();
+
+  // Load messages
+  const cached = convCache[convKey(myName, user)];
+  if (cached) {
+    renderMessages(cached);
+  } else {
+    fetchHistory(user);
+  }
+}
+
+async function fetchHistory(user) {
+  try {
+    const res  = await fetch(`/history/${myName}/${user}`);
+    const msgs = await res.json();
+    const key  = convKey(myName, user);
+    convCache[key] = msgs;
+    renderMessages(msgs);
+  } catch {
+    renderMessages([]);
+  }
+}
+
+function renderMessages(msgs) {
+  const box = document.getElementById("messages");
+  box.innerHTML = "";
+
+  if (!msgs.length) {
+    box.innerHTML = '<div id="empty-state">no messages yet<br><span style="color:var(--muted)">say hello!</span></div>';
+    return;
+  }
+
+  msgs.forEach(m => renderMsg(m, m.from === myName));
+  scrollBottom();
+}
+
+function renderMsg(msg, isMine) {
+  const box = document.getElementById("messages");
+  const emptyState = document.getElementById("empty-state");
+  if (emptyState) emptyState.remove();
+
+  const row = document.createElement("div");
+  row.className = "msg-row " + (isMine ? "mine" : "theirs");
+  row.dataset.id = msg._id || "";
+
+  const time = formatTime(msg.ts);
+  const statusBadge = isMine
+    ? `<span class="status ${msg.status || 'sent'}" data-status-id="${msg._id}">${statusIcon(msg.status || "sent")}</span>`
+    : "";
+
+  row.innerHTML = `
+    <div class="bubble">${escHtml(msg.text)}</div>
+    <div class="msg-meta">${time}${statusBadge}</div>
+  `;
+
+  box.appendChild(row);
+  scrollBottom();
+}
+
+// Update status badge after ack from server
+function updateStatus(id, status) {
+  const badge = document.querySelector(`[data-status-id="${id}"]`);
+  if (badge) {
+    badge.className = `status ${status}`;
+    badge.textContent = statusIcon(status);
+  }
+}
+
+// ── Send message ──────────────────────────────
+document.getElementById("send-btn").onclick = sendMessage;
+document.getElementById("msg-input").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+
+function sendMessage() {
+  const input = document.getElementById("msg-input");
+  const text  = input.value.trim();
+  if (!text || !chatWith) return;
+  input.value = "";
+  autoResize(input);
+
+  // Temp ID so we can track status before server responds
+  const tempId = "tmp_" + Date.now();
+
+  const msg = { _id: tempId, from: myName, to: chatWith, text, ts: new Date(), status: "pending" };
+  cacheMsg(msg);
+  renderMsg(msg, true);      // show immediately (optimistic)
+
+  if (isOnline) {
+    // Send via socket; server will ack with real _id + "sent"
+    socket.emit("send_msg", { to: chatWith, text });
+    // After 5s with no ack, mark as pending still (not an error)
+  } else {
+    // Save to IndexedDB queue for later
+    queueMessage({ to: chatWith, text, tempId });
+  }
+}
+
+// ── 6. Offline Queue (IndexedDB) ─────────────
+// Very lightweight: we store messages in IDB, flush when online
+
+let db; // IDB instance
+
+function openDB() {
+  const req = indexedDB.open("litechat_queue", 1);
+  req.onupgradeneeded = e => {
+    e.target.result.createObjectStore("queue", { keyPath: "tempId" });
+  };
+  req.onsuccess = e => { db = e.target.result; };
+}
+openDB();
+
+function queueMessage(item) {
+  if (!db) return;
+  const tx = db.transaction("queue", "readwrite");
+  tx.objectStore("queue").put(item);
+}
+
+function dequeueMessage(tempId) {
+  if (!db) return;
+  const tx = db.transaction("queue", "readwrite");
+  tx.objectStore("queue").delete(tempId);
+}
+
+function flushQueue() {
+  if (!db || !socket?.connected) return;
+  const tx = db.transaction("queue", "readonly");
+  const req = tx.objectStore("queue").getAll();
+  req.onsuccess = () => {
+    req.result.forEach(item => {
+      socket.emit("send_msg", { to: item.to, text: item.text });
+      dequeueMessage(item.tempId);
+      console.log("↑ flushed queued msg to", item.to);
+    });
+  };
+}
+
+// ── 7. Network Detection ──────────────────────
+window.addEventListener("online",  () => { isOnline = true;  hideOfflineBar(); flushQueue(); });
+window.addEventListener("offline", () => { isOnline = false; showOfflineBar();  });
+
+function showOfflineBar() { document.getElementById("offline-bar").classList.add("show"); }
+function hideOfflineBar() { document.getElementById("offline-bar").classList.remove("show"); }
+
+// ── 8. Helpers ────────────────────────────────
+
+// Canonical key for a conversation (always sorted)
+function convKey(a, b) { return [a, b].sort().join("|"); }
+
+// Add to in-memory cache
+function cacheMsg(msg) {
+  const key = convKey(msg.from, msg.to);
+  if (!convCache[key]) convCache[key] = [];
+  convCache[key].push(msg);
+}
+
+function scrollBottom() {
+  const box = document.getElementById("messages");
+  box.scrollTop = box.scrollHeight;
+}
+
+function statusIcon(s) {
+  return s === "sent" ? "✓ sent" : s === "pending" ? "⏳ pending" : "✗ error";
+}
+
+function escHtml(str) {
+  return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function formatTime(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+// Status dot in sidebar header
+function dot(state) {
+  document.getElementById("status-dot").className = state === "online" ? "online" : "";
+}
+
+// Auto-resize textarea
+const msgInput = document.getElementById("msg-input");
+msgInput.addEventListener("input", () => autoResize(msgInput));
+function autoResize(el) {
+  el.style.height = "36px";
+  el.style.height = Math.min(el.scrollHeight, 100) + "px";
+}
+</script>
+</body>
+</html>
