@@ -31,9 +31,9 @@ mongoose
 // Stores each message with sender, receiver, content, and status
 const msgSchema = new mongoose.Schema({
   from: { type: String, required: true },
-  to:   { type: String, required: true },
+  to: { type: String, required: true },
   text: { type: String, required: true, maxlength: 2000 },
-  ts:   { type: Date, default: Date.now },   // timestamp
+  ts: { type: Date, default: Date.now },   // timestamp
   read: { type: Boolean, default: false },
 });
 
@@ -45,6 +45,12 @@ const Message = mongoose.model("Message", msgSchema);
 // ── Static files ─────────────────────────────
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
+
+// ── Root Route ───────────────────────────────
+// Explicitly serve index.html to avoid "Cannot GET /" errors
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 
 // ── Health Check ─────────────────────────────
 app.get("/health", (req, res) => {
